@@ -2,10 +2,8 @@ import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 import * as QRCodeLib from "qrcode";
 import { Html5QrcodeScanner } from "html5-qrcode";
-<h2>Proyecto DevOps QR - CI/CD funcionando 🚀</h2>
 
-
-// Componente para generar un QR sin usar librerías con hooks
+// Componente para generar el QR
 function QRCode({ value }) {
   const [dataUrl, setDataUrl] = useState("");
 
@@ -14,7 +12,7 @@ function QRCode({ value }) {
 
     QRCodeLib.toDataURL(
       value,
-      { width: 200, margin: 1 },
+      { width: 240, margin: 1 },
       (err, url) => {
         if (err) {
           console.error("Error generando QR:", err);
@@ -31,7 +29,7 @@ function QRCode({ value }) {
     <img
       src={dataUrl}
       alt="Código QR"
-      style={{ width: 160, height: 160 }}
+      className="qr-image"
     />
   );
 }
@@ -42,12 +40,15 @@ function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const [recursos, setRecursos] = useState([]);
-  const [nuevoNombre, setNuevoNombre] = useState("");
+  // Encuestas
+  const [encuestas, setEncuestas] = useState([]);
+  const [nuevoTitulo, setNuevoTitulo] = useState("");
   const [nuevaDescripcion, setNuevaDescripcion] = useState("");
+  const [nuevaUrl, setNuevaUrl] = useState("");
 
   const [qrEscaneado, setQrEscaneado] = useState("");
   const [mensajeValidacion, setMensajeValidacion] = useState("");
+  const [encuestaActual, setEncuestaActual] = useState(null);
 
   // ============ SESIÓN ============
   useEffect(() => {
@@ -98,92 +99,110 @@ function App() {
     await supabase.auth.signOut();
   };
 
-  // ============ CRUD ============
-  const cargarRecursos = async () => {
+  // ============ CRUD ENCUESTAS ============
+  const cargarEncuestas = async () => {
     const { data, error } = await supabase
       .from("recursos")
       .select("*")
       .order("created_at", { ascending: false });
 
     if (error) console.error(error);
-    else setRecursos(data);
+    else setEncuestas(data);
   };
 
-  const crearRecurso = async (e) => {
+  const crearEncuesta = async (e) => {
     e.preventDefault();
-    if (!nuevoNombre) {
-      alert("El nombre es obligatorio");
+    if (!nuevoTitulo) {
+      alert("El título es obligatorio");
       return;
     }
 
     const { error } = await supabase.from("recursos").insert({
-      nombre: nuevoNombre,
+      nombre: nuevoTitulo,
       descripcion: nuevaDescripcion,
+      url: nuevaUrl,
     });
 
     if (error) {
-      alert("Error al crear recurso: " + error.message);
+      alert("Error al crear la encuesta: " + error.message);
     } else {
-      setNuevoNombre("");
+      setNuevoTitulo("");
       setNuevaDescripcion("");
-      cargarRecursos();
+      setNuevaUrl("");
+      cargarEncuestas();
     }
   };
 
-  const eliminarRecurso = async (id) => {
-    if (!confirm("¿Eliminar este recurso?")) return;
+  const eliminarEncuesta = async (id) => {
+    if (!confirm("¿Eliminar esta encuesta?")) return;
 
     const { error } = await supabase.from("recursos").delete().eq("id", id);
 
     if (error) {
       alert("Error al eliminar: " + error.message);
     } else {
-      cargarRecursos();
+      cargarEncuestas();
     }
   };
 
   useEffect(() => {
     if (session) {
-      cargarRecursos();
+      cargarEncuestas();
     }
   }, [session]);
 
-  // ============ VALIDAR RECURSO POR QR ============
-  const validarRecurso = async (idEscaneado) => {
-    setMensajeValidacion("Buscando recurso...");
-    const { data, error } = await supabase
+  // ============ VALIDAR ENCUESTA ============
+  const validarEncuesta = async (textoQR) => {
+    setMensajeValidacion("Buscando encuesta...");
+    setEncuestaActual(null);
+
+    // 1) Intentar por ID
+    let { data, error } = await supabase
       .from("recursos")
       .select("*")
-      .eq("id", idEscaneado)
+      .eq("id", textoQR)
       .single();
 
+    // 2) Intentar por URL
     if (error || !data) {
-      setMensajeValidacion("QR no válido o recurso no encontrado.");
-    } else {
-      setMensajeValidacion(`Recurso válido: ${data.nombre}`);
+      const { data: dataUrl, error: errorUrl } = await supabase
+        .from("recursos")
+        .select("*")
+        .eq("url", textoQR)
+        .single();
+
+      if (errorUrl || !dataUrl) {
+        setMensajeValidacion("QR no válido o encuesta no encontrada.");
+        return;
+      } else {
+        data = dataUrl;
+      }
     }
+
+    setEncuestaActual(data);
+    setMensajeValidacion(`Encuesta válida: ${data.nombre}`);
   };
 
-  // ============ SCANNER (html5-qrcode) ============
+  // ============ SCANNER ============
   useEffect(() => {
     if (!session) return;
 
     let scanner;
 
-    const onScanSuccess = (decodedText /*, decodedResult */) => {
+    const onScanSuccess = (decodedText) => {
       setQrEscaneado(decodedText);
-      validarRecurso(decodedText);
+      validarEncuesta(decodedText);
     };
 
     const onScanError = (_errorMessage) => {
-      // errores de lectura continua, los ignoramos
+      // errores de lectura continua, se ignoran
     };
 
     scanner = new Html5QrcodeScanner(
       "reader",
       {
         fps: 10,
-        qrbox: { width: 250, height: 250 },
+        qrbox: { width: 260, height: 260 },
       },
       false
     );
@@ -203,130 +222,216 @@ function App() {
 
   if (!session) {
     return (
-      <div
-        style={{
-          maxWidth: 400,
-          margin: "40px auto",
-          fontFamily: "sans-serif",
-          color: "white",
-        }}
-      >
-        <h2>Proyecto DevOps QR - Login</h2>
-        <form onSubmit={handleLogin}>
-          <div>
-            <label>Correo</label>
+      <div className="app">
+        <div className="auth-card">
+          <h1 className="app-title">Proyecto DevOps</h1>
+          <h2 className="app-subtitle">Encuestas con Código QR</h2>
+
+          <form onSubmit={handleLogin} className="form">
+            <label className="form-label">Correo institucional</label>
             <input
               type="email"
+              className="input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              style={{ width: "100%", marginBottom: 10 }}
+              placeholder="tucorreo@ejemplo.com"
             />
-          </div>
-          <div>
-            <label>Contraseña</label>
+
+            <label className="form-label">Contraseña</label>
             <input
               type="password"
+              className="input"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              style={{ width: "100%", marginBottom: 10 }}
+              placeholder="••••••••"
             />
+
+            <button type="submit" className="btn btn-primary">
+              Iniciar sesión
+            </button>
+          </form>
+
+          <div className="divider">
+            <span>o</span>
           </div>
-          <button type="submit">Iniciar sesión</button>
-        </form>
 
-        <hr style={{ margin: "20px 0" }} />
-
-        <p>¿No tienes cuenta?</p>
-        <button onClick={handleRegister}>Registrarme</button>
+          <button onClick={handleRegister} className="btn btn-outline">
+            Crear cuenta nueva
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div
-      style={{
-        maxWidth: 1000,
-        margin: "20px auto",
-        fontFamily: "sans-serif",
-        color: "white",
-      }}
-    >
-      <h2>Proyecto DevOps QR</h2>
-      <p>Usuario: {session.user?.email}</p>
-      <button onClick={handleLogout}>Cerrar sesión</button>
-
-      <hr />
-
-      <h3>Crear nuevo recurso</h3>
-      <form onSubmit={crearRecurso}>
+    <div className="app">
+      {/* HEADER */}
+      <header className="header">
         <div>
-          <label>Nombre</label>
-          <input
-            type="text"
-            value={nuevoNombre}
-            onChange={(e) => setNuevoNombre(e.target.value)}
-            style={{ width: "100%", marginBottom: 10 }}
-          />
+          <h1 className="app-title">Proyecto DevOps - Encuestas con QR</h1>
+          <p className="app-subtitle">
+            MR100518 · Mina Rodríguez, Brayan Rafael — Encuestas con QR
+          </p>
         </div>
-        <div>
-          <label>Descripción</label>
-          <textarea
-            value={nuevaDescripcion}
-            onChange={(e) => setNuevaDescripcion(e.target.value)}
-            style={{ width: "100%", marginBottom: 10 }}
-          />
+
+        <div className="header-user">
+          <span className="user-email">{session.user?.email}</span>
+          <button onClick={handleLogout} className="btn btn-outline small">
+            Cerrar sesión
+          </button>
         </div>
-        <button type="submit">Guardar recurso</button>
-      </form>
+      </header>
 
-      <hr />
+      {/* LAYOUT PRINCIPAL */}
+      <main className="layout">
+        {/* COLUMNA IZQUIERDA: FORM + LISTADO */}
+        <section className="column">
+          {/* FORMULARIO */}
+          <div className="card">
+            <h2 className="card-title">Crear nueva encuesta</h2>
+            <p className="card-description">
+              Registra una encuesta y genera un código QR para compartirla.
+            </p>
 
-      <h3>Listado de recursos (con QR)</h3>
-      {recursos.length === 0 && <p>No hay recursos aún.</p>}
+            <form onSubmit={crearEncuesta} className="form">
+              <label className="form-label">Título de la encuesta</label>
+              <input
+                type="text"
+                className="input"
+                value={nuevoTitulo}
+                onChange={(e) => setNuevoTitulo(e.target.value)}
+                placeholder="Ej. Encuesta de satisfacción estudiantil"
+              />
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-          gap: 20,
-        }}
-      >
-        {recursos.map((r) => (
-          <div
-            key={r.id}
-            style={{
-              border: "1px solid #444",
-              padding: 10,
-              borderRadius: 8,
-              background: "#111",
-            }}
-          >
-            <h4>{r.nombre}</h4>
-            <p>{r.descripcion}</p>
-            <p style={{ fontSize: 12, wordBreak: "break-all" }}>{r.id}</p>
+              <label className="form-label">Descripción</label>
+              <textarea
+                className="input textarea"
+                value={nuevaDescripcion}
+                onChange={(e) => setNuevaDescripcion(e.target.value)}
+                placeholder="Breve explicación del objetivo de la encuesta"
+              />
 
-            <div style={{ textAlign: "center", margin: "10px 0" }}>
-              <QRCode value={r.id} />
-            </div>
+              <label className="form-label">
+                URL de la encuesta (Google Forms, Microsoft Forms, etc.)
+              </label>
+              <input
+                type="url"
+                className="input"
+                value={nuevaUrl}
+                onChange={(e) => setNuevaUrl(e.target.value)}
+                placeholder="https://forms.gle/..."
+              />
 
-            <button onClick={() => eliminarRecurso(r.id)}>Eliminar</button>
+              <button type="submit" className="btn btn-primary">
+                Guardar encuesta
+              </button>
+            </form>
           </div>
-        ))}
-      </div>
 
-      <hr />
+          {/* LISTADO */}
+          <div className="card">
+            <h2 className="card-title">Listado de encuestas</h2>
+            <p className="card-description">
+              Cada tarjeta incluye el QR listo para imprimir o compartir.
+            </p>
 
-      <h3>Escanear QR</h3>
-      <p>Apunta la cámara al código QR de uno de los recursos.</p>
+            {encuestas.length === 0 && (
+              <p className="empty-text">Todavía no hay encuestas registradas.</p>
+            )}
 
-      <div id="reader" style={{ width: 320, maxWidth: "100%" }} />
+            <div className="grid">
+              {encuestas.map((encuesta) => (
+                <article key={encuesta.id} className="survey-card">
+                  <div className="survey-header">
+                    <h3>{encuesta.nombre}</h3>
+                    <button
+                      onClick={() => eliminarEncuesta(encuesta.id)}
+                      className="btn btn-danger small"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
 
-      <p style={{ marginTop: 10 }}>QR escaneado: {qrEscaneado}</p>
-      <p>
-        <strong>{mensajeValidacion}</strong>
-      </p>
+                  {encuesta.descripcion && (
+                    <p className="survey-description">
+                      {encuesta.descripcion}
+                    </p>
+                  )}
+
+                  {encuesta.url && (
+                    <p className="survey-url">
+                      <span>URL: </span>
+                      <a
+                        href={encuesta.url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {encuesta.url}
+                      </a>
+                    </p>
+                  )}
+
+                  <p className="survey-id">ID: {encuesta.id}</p>
+
+                  <div className="survey-qr">
+                    <QRCode value={encuesta.url || encuesta.id} />
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* COLUMNA DERECHA: SCANNER + DETALLE */}
+        <section className="column column-narrow">
+          {/* SCANNER */}
+          <div className="card">
+            <h2 className="card-title">Escanear código QR</h2>
+            <p className="card-description">
+              Usa la cámara para validar si el código corresponde a una encuesta registrada.
+            </p>
+
+            <div id="reader" className="qr-reader" />
+
+            <div className="scan-info">
+              <p className="scan-text">
+                <span>Texto escaneado:</span> {qrEscaneado || "—"}
+              </p>
+              <p className="scan-status">
+                <strong>{mensajeValidacion}</strong>
+              </p>
+            </div>
+          </div>
+
+          {/* DETALLE DE ENCUESTA */}
+          {encuestaActual && (
+            <div className="card">
+              <h2 className="card-title">Encuesta encontrada</h2>
+              <p className="detail-item">
+                <span>Título:</span> {encuestaActual.nombre}
+              </p>
+              <p className="detail-item">
+                <span>Descripción:</span>{" "}
+                {encuestaActual.descripcion || "Sin descripción"}
+              </p>
+              {encuestaActual.url && (
+                <p className="detail-item">
+                  <span>URL:</span>{" "}
+                  <a
+                    href={encuestaActual.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Abrir encuesta
+                  </a>
+                </p>
+              )}
+            </div>
+          )}
+        </section>
+      </main>
     </div>
   );
 }
