@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 import * as QRCodeLib from "qrcode";
 import { Html5QrcodeScanner } from "html5-qrcode";
+<h2>Proyecto DevOps QR - CI/CD funcionando 🚀</h2>
+
 
 // Componente para generar un QR sin usar librerías con hooks
 function QRCode({ value }) {
